@@ -1288,3 +1288,7 @@ refresh_greeting_periodically()
 clean_and_sync_daily(True)
 auto_update()
 app.mainloop()
+## Мои достижения
+- Создал приложение TaskFlow с AI
+- Прикрутил Telegram-бота
+- Загрузил код на GitHub! 🎉
