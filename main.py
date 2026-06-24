@@ -71,6 +71,7 @@ priority_menu = None
 category_menu = None
 deadline_input = None
 tasks_box = None
+tasks_frame = None
 stats_label = None
 progress = None
 motivation_label = None
@@ -81,6 +82,9 @@ weather_label = None
 focus_task_label = None
 focus_time_label = None
 focus_frame = None
+chat_history = []  # История чата для памяти AI
+chat_box = None    # Контейнер для сообщений
+chat_input = None  # Поле ввода
 
 MOTIVATION_QUOTES = [
     "💪 Каждый час кодинга — шаг к мечте",
@@ -879,7 +883,7 @@ def create_card_animated(t):
         ctk.CTkButton(card, text="🗑", width=40, height=30, fg_color=BG_TERTIARY, hover_color=DANGER, text_color=TEXT_PRIMARY, command=lambda tid=task_id: delete_task_ui(tid)).pack(side="right", padx=4)
         
 def clear_content_animated():
-    """Плавное удаление контента"""
+    """Плавное удаление контента (только нижняя часть)"""
     widgets = content_frame.winfo_children()
     for i, widget in enumerate(widgets):
         widget.after(i * 20, lambda w=widget: animate_color(w, w.cget("fg_color") if hasattr(w, "_fg_color") else BG_PRIMARY, BG_PRIMARY, 200, lambda wdg=w: wdg.destroy()))
@@ -888,45 +892,93 @@ def clear_content_animated():
     content_frame.after(len(widgets) * 20 + 250, lambda: None)
 
 def show_tasks_view():
-    clear_content_animated()
-    sf = ctk.CTkFrame(content_frame, fg_color=BG_SECONDARY, corner_radius=12, border_width=1, border_color=BORDER)
-    sf.pack(pady=10, padx=20)
-    global stats_label, progress
-    stats_label = ctk.CTkLabel(sf, text="✓ 0/0", font=("Segoe UI", 16, "bold"), text_color=TEXT_PRIMARY)
-    stats_label.pack(pady=10, padx=20)
-    progress = ctk.CTkProgressBar(content_frame, width=700, height=8, fg_color=BG_TERTIARY, progress_color=ACCENT, corner_radius=4)
-    progress.pack(pady=10)
+    global tasks
+    tasks = get_all_tasks(force_refresh=True)
+    
+    # Очищаем только нижнюю часть (content_frame)
+    for widget in content_frame.winfo_children():
+        widget.destroy()
+    
+   # Обновляем верхнюю часть (tasks_frame)
+    global task_input, search_input, priority_menu, category_menu, deadline_input, tasks_box, stats_label, progress
+    
+   # Очищаем tasks_frame
+    if tasks_frame is not None:
+        for widget in tasks_frame.winfo_children():
+            widget.destroy()
+        
+    # Заголовок задач
+    tasks_header = ctk.CTkFrame(tasks_frame, fg_color="transparent")
+    tasks_header.pack(pady=10, padx=20, fill="x")
+    
+    stats_label = ctk.CTkLabel(tasks_header, text="✓ 0/0", font=("Segoe UI", 16, "bold"), text_color=TEXT_PRIMARY)
+    stats_label.pack(side="left")
+    
+    progress = ctk.CTkProgressBar(tasks_header, width=500, height=8, fg_color=BG_TERTIARY, progress_color=ACCENT, corner_radius=4)
+    progress.pack(side="left", padx=20)
     progress.set(0)
-    global task_input, search_input, priority_menu, category_menu, deadline_input, tasks_box
-    inf = ctk.CTkFrame(content_frame, fg_color="transparent")
+    
+    # Поле ввода задачи
+    inf = ctk.CTkFrame(tasks_frame, fg_color="transparent")
     inf.pack(pady=10, padx=20)
-    task_input = ctk.CTkEntry(inf, width=350, placeholder_text="Новая задача...", font=("Segoe UI", 13), fg_color=BG_SECONDARY, text_color=TEXT_PRIMARY, border_color=BORDER, border_width=1, corner_radius=8)
+    
+    task_input = ctk.CTkEntry(inf, width=350, placeholder_text="Новая задача...", font=("Segoe UI", 13), 
+                              fg_color=BG_SECONDARY, text_color=TEXT_PRIMARY, border_color=BORDER, 
+                              border_width=1, corner_radius=8)
     task_input.pack(side="left", padx=(0, 8))
-    mic_btn = ctk.CTkButton(inf, text="🎤", width=40, height=32, fg_color=ACCENT, hover_color=ACCENT_HOVER, command=listen_voice)
+    
+    mic_btn = ctk.CTkButton(inf, text="🎤", width=40, height=32, fg_color=ACCENT, 
+                            hover_color=ACCENT_HOVER, command=listen_voice)
     mic_btn.pack(side="left", padx=5)
-    search_input = ctk.CTkEntry(inf, width=200, placeholder_text="Поиск...", font=("Segoe UI", 12), fg_color=BG_SECONDARY, text_color=TEXT_PRIMARY, border_color=BORDER, border_width=1, corner_radius=8)
+    
+    search_input = ctk.CTkEntry(inf, width=200, placeholder_text="Поиск...", font=("Segoe UI", 12), 
+                                fg_color=BG_SECONDARY, text_color=TEXT_PRIMARY, border_color=BORDER, 
+                                border_width=1, corner_radius=8)
     search_input.pack(side="left", padx=8)
     search_input.bind("<KeyRelease>", update_search)
-    setf = ctk.CTkFrame(content_frame, fg_color="transparent")
+    
+    # Фильтры и настройки
+    setf = ctk.CTkFrame(tasks_frame, fg_color="transparent")
     setf.pack(pady=5, padx=20)
-    priority_menu = ctk.CTkOptionMenu(setf, values=["Высокий", "Средний", "Низкий"], width=120, font=("Segoe UI", 11), fg_color=BG_SECONDARY, button_color=ACCENT, corner_radius=6)
+    
+    priority_menu = ctk.CTkOptionMenu(setf, values=["Высокий", "Средний", "Низкий"], width=120, 
+                                      font=("Segoe UI", 11), fg_color=BG_SECONDARY, button_color=ACCENT, corner_radius=6)
     priority_menu.pack(side="left", padx=5)
     priority_menu.set("Средний")
-    category_menu = ctk.CTkOptionMenu(setf, values=["Учёба", "Тренировки", "Важное", "Бизнес", "Пары"], width=120, font=("Segoe UI", 11), fg_color=BG_SECONDARY, button_color=ACCENT, corner_radius=6)
+    
+    category_menu = ctk.CTkOptionMenu(setf, values=["Учёба", "Тренировки", "Важное", "Бизнес", "Пары"], 
+                                      width=120, font=("Segoe UI", 11), fg_color=BG_SECONDARY, 
+                                      button_color=ACCENT, corner_radius=6)
     category_menu.pack(side="left", padx=5)
     category_menu.set("Учёба")
-    deadline_input = ctk.CTkEntry(setf, width=160, placeholder_text="ДД.ММ.ГГГГ ЧЧ:ММ", font=("Segoe UI", 11), fg_color=BG_SECONDARY, text_color=TEXT_PRIMARY, border_color=BORDER, border_width=1, corner_radius=6)
+    
+    deadline_input = ctk.CTkEntry(setf, width=160, placeholder_text="ДД.ММ.ГГГГ ЧЧ:ММ", font=("Segoe UI", 11), 
+                                  fg_color=BG_SECONDARY, text_color=TEXT_PRIMARY, border_color=BORDER, 
+                                  border_width=1, corner_radius=6)
     deadline_input.pack(side="left", padx=5)
-    ctk.CTkButton(setf, text="➕ Добавить", command=add_task_ui, fg_color=ACCENT, hover_color=ACCENT_HOVER, font=("Segoe UI", 12, "bold"), width=110, height=32, corner_radius=6).pack(side="left", padx=5)
-    filter_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
+    
+    ctk.CTkButton(setf, text="➕ Добавить", command=add_task_ui, fg_color=ACCENT, hover_color=ACCENT_HOVER, 
+                  font=("Segoe UI", 12, "bold"), width=110, height=32, corner_radius=6).pack(side="left", padx=5)
+    
+    # Кнопки фильтров
+    filter_frame = ctk.CTkFrame(tasks_frame, fg_color="transparent")
     filter_frame.pack(pady=5, padx=20)
-    ctk.CTkButton(filter_frame, text="📋 Все", command=lambda: set_filter("Все"), fg_color=BG_SECONDARY, hover_color=ACCENT, height=28, width=70, font=("Segoe UI", 11)).pack(side="left", padx=4)
-    ctk.CTkButton(filter_frame, text="🎓 Пары", command=lambda: set_filter("Пары"), fg_color=BG_SECONDARY, hover_color=ACCENT, height=28, width=70, font=("Segoe UI", 11)).pack(side="left", padx=4)
-    ctk.CTkButton(filter_frame, text="💻 Учёба", command=lambda: set_filter("Учёба"), fg_color=BG_SECONDARY, hover_color=ACCENT, height=28, width=70, font=("Segoe UI", 11)).pack(side="left", padx=4)
-    ctk.CTkButton(filter_frame, text="💪 Спорт", command=lambda: set_filter("Тренировки"), fg_color=BG_SECONDARY, hover_color=ACCENT, height=28, width=70, font=("Segoe UI", 11)).pack(side="left", padx=4)
-    ctk.CTkButton(filter_frame, text="📤 PDF", command=export_to_pdf, fg_color=BG_SECONDARY, hover_color=ACCENT, height=28, width=70, font=("Segoe UI", 11)).pack(side="right", padx=4)
-    tasks_box = ctk.CTkScrollableFrame(content_frame, width=750, height=320, fg_color="transparent")
+    
+    ctk.CTkButton(filter_frame, text="📋 Все", command=lambda: set_filter("Все"), fg_color=BG_SECONDARY, 
+                  hover_color=ACCENT, height=28, width=70, font=("Segoe UI", 11)).pack(side="left", padx=4)
+    ctk.CTkButton(filter_frame, text="🎓 Пары", command=lambda: set_filter("Пары"), fg_color=BG_SECONDARY, 
+                  hover_color=ACCENT, height=28, width=70, font=("Segoe UI", 11)).pack(side="left", padx=4)
+    ctk.CTkButton(filter_frame, text="💻 Учёба", command=lambda: set_filter("Учёба"), fg_color=BG_SECONDARY, 
+                  hover_color=ACCENT, height=28, width=70, font=("Segoe UI", 11)).pack(side="left", padx=4)
+    ctk.CTkButton(filter_frame, text="💪 Спорт", command=lambda: set_filter("Тренировки"), fg_color=BG_SECONDARY, 
+                  hover_color=ACCENT, height=28, width=70, font=("Segoe UI", 11)).pack(side="left", padx=4)
+    ctk.CTkButton(filter_frame, text="📤 PDF", command=export_to_pdf, fg_color=BG_SECONDARY, 
+                  hover_color=ACCENT, height=28, width=70, font=("Segoe UI", 11)).pack(side="right", padx=4)
+    
+    # Список задач
+    tasks_box = ctk.CTkScrollableFrame(tasks_frame, width=750, height=250, fg_color="transparent")
     tasks_box.pack(pady=10, padx=20)
+    
     refresh_tasks()
 
 def show_history_view():
@@ -1098,6 +1150,189 @@ def show_ai_view():
             ctk.CTkLabel(content_frame, text="Ошибка AI", font=("Segoe UI", 14), text_color=DANGER).pack(pady=20)
     ctk.CTkButton(content_frame, text="🚀 Сгенерировать", command=generate, fg_color=ACCENT, hover_color=ACCENT_HOVER, height=38).pack(pady=20)
 
+def show_chat_view():
+    """Показывает чат с AI-наставником"""
+    clear_content_animated()  # ← ИСПРАВЛЕНО!
+    
+    ctk.CTkLabel(content_frame, text="💬 AI-Наставник", font=("Segoe UI", 28, "bold"), text_color=TEXT_PRIMARY).pack(pady=20)
+    ctk.CTkLabel(content_frame, text="Я знаю твои цели и помогу их достичь. Спрашивай что угодно!", 
+                 font=("Segoe UI", 13), text_color=TEXT_SECONDARY).pack(pady=(0, 15))
+    
+    # Область чата
+    global chat_box
+    chat_box = ctk.CTkScrollableFrame(content_frame, width=800, height=450, fg_color=BG_SECONDARY, corner_radius=12)
+    chat_box.pack(pady=10, padx=20, fill="both", expand=True)
+    
+    # Приветственное сообщение
+    if not chat_history:
+        add_chat_message("ai", f"Привет, {profile['name']}! 👋\n\nЯ твой AI-наставник. Знаю, что твоя цель: {profile['goal']}.\n\nМогу помочь:\n- Создать план достижения цели\n- Добавить задачи в расписание\n- Дать совет по продуктивности\n- Просто поболтать 😊\n\nО чём поговорим?")
+    
+    # Поле ввода
+    input_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
+    input_frame.pack(pady=10, padx=20, fill="x")
+    
+    global chat_input
+    chat_input = ctk.CTkEntry(input_frame, width=700, placeholder_text="Напиши сообщение...", 
+                              font=("Segoe UI", 14), fg_color=BG_SECONDARY, text_color=TEXT_PRIMARY,
+                              border_color=BORDER, border_width=1, corner_radius=10)
+    chat_input.pack(side="left", padx=(0, 10), fill="x", expand=True)
+    chat_input.bind("<Return>", lambda e: send_chat_message())
+    
+    send_btn = ctk.CTkButton(input_frame, text="➤", width=50, height=40, 
+                             fg_color=ACCENT, hover_color=ACCENT_HOVER, 
+                             font=("Segoe UI", 16, "bold"), command=send_chat_message)
+    send_btn.pack(side="right")
+
+def add_chat_message(sender, text):
+    """Добавляет сообщение в чат"""
+    if chat_box is None:
+        return
+    
+    # Сохраняем в историю
+    chat_history.append({"sender": sender, "text": text})
+    
+    # Создаём виджет сообщения
+    if sender == "user":
+        msg_frame = ctk.CTkFrame(chat_box, fg_color=ACCENT, corner_radius=12)
+        msg_frame.pack(pady=5, padx=50, anchor="e", fill="x")
+        msg_label = ctk.CTkLabel(msg_frame, text=text, font=("Segoe UI", 13), 
+                                text_color="#ffffff", wraplength=600, justify="right")
+        msg_label.pack(padx=15, pady=10, anchor="e")
+    else:
+        msg_frame = ctk.CTkFrame(chat_box, fg_color=BG_TERTIARY, corner_radius=12)
+        msg_frame.pack(pady=5, padx=50, anchor="w", fill="x")
+        msg_label = ctk.CTkLabel(msg_frame, text=text, font=("Segoe UI", 13), 
+                                text_color=TEXT_PRIMARY, wraplength=600, justify="left")
+        msg_label.pack(padx=15, pady=10, anchor="w")
+    
+    # Безопасная прокрутка вниз
+    try:
+        chat_box.after(100, lambda: chat_box.yview_moveto(1.0))
+    except:
+        pass
+
+def send_chat_message():
+    """Отправляет сообщение AI"""
+    if chat_input is None:
+        return
+    
+    user_text = chat_input.get().strip()
+    if not user_text:
+        return
+    
+    # Добавляем сообщение пользователя
+    add_chat_message("user", user_text)
+    chat_input.delete(0, "end")
+    
+    # Показываем индикатор "AI печатает..."
+    typing_label = ctk.CTkLabel(chat_box, text="🤖 AI печатает...", 
+                               font=("Segoe UI", 12), text_color=TEXT_MUTED)
+    typing_label.pack(pady=5, padx=50, anchor="w")
+    content_frame.update()
+    
+    # Отправляем в AI в отдельном потоке
+    def ai_response():
+        try:
+            prompt = build_ai_prompt(user_text)
+            response = requests.post(
+                OLLAMA_API_URL,
+                json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False, "options": {"temperature": 0.7}},
+                timeout=180
+            )
+            
+            if response.status_code == 200:
+                ai_text = response.json().get("response", "")
+                tasks_created = parse_and_create_tasks(ai_text)
+                app.after(0, lambda: finish_ai_response(typing_label, ai_text, tasks_created))
+            else:
+                app.after(0, lambda: finish_ai_response(typing_label, "Извини, произошла ошибка. Попробуй ещё раз.", 0))
+        except Exception as e:
+            print("Ошибка AI: " + str(e))
+            app.after(0, lambda: finish_ai_response(typing_label, "Извини, я не могу ответить сейчас. Проверь, запущен ли Ollama.", 0))
+    
+    threading.Thread(target=ai_response, daemon=True).start()
+
+def finish_ai_response(typing_label, ai_text, tasks_created):
+    """Завершает ответ AI"""
+    typing_label.destroy()
+    add_chat_message("ai", ai_text)
+    
+    if tasks_created > 0:
+        add_chat_message("ai", f"\n✅ Создал {tasks_created} задач в твоём расписании!")
+        refresh_tasks()
+        update_status_bar()
+        update_motivation()
+
+def build_ai_prompt(user_message):
+    """Строит промпт для AI с контекстом"""
+    # Собираем историю чата (последние 10 сообщений)
+    recent_history = chat_history[-10:] if len(chat_history) > 10 else chat_history
+    history_text = "\n".join([f"{'Пользователь' if m['sender'] == 'user' else 'AI'}: {m['text']}" for m in recent_history])
+    
+    # Получаем текущие задачи
+    today = datetime.datetime.now().strftime("%d.%m.%Y")
+    today_tasks = [t for t in tasks if today in str(t.get("deadline", ""))]
+    tasks_text = "\n".join([f"- {t['text']} ({'✅' if t['done'] else '⬜'})" for t in today_tasks[:5]])
+    
+    prompt = f"""Ты - персональный AI-наставник и помощник по продуктивности. Ты общаешься с пользователем в приложении TaskFlow.
+
+ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ:
+- Имя: {profile['name']}
+- Главная цель на 3 месяца: {profile['goal']}
+- Часов на кодинг в день: {profile['coding_hours']}
+- Часов на спорт в день: {profile['sport_hours']}
+
+ТЕКУЩИЕ ЗАДАЧИ НА СЕГОДНЯ:
+{tasks_text if tasks_text else "Нет задач на сегодня"}
+
+ИСТОРИЯ ВАШЕГО ОБЩЕНИЯ:
+{history_text}
+
+СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ:
+{user_message}
+
+ИНСТРУКЦИИ:
+1. Отвечай дружелюбно и мотивирующе
+2. Помни о целях пользователя и помогай их достигать
+3. Если пользователь говорит о планах, целях, желаниях - предлагай создать задачи
+4. Если создаёшь задачи, используй формат:
+   ЗАДАЧА: [текст задачи] | [категория: Учёба/Тренировки/Важное] | [дедлайн: ДД.ММ.ГГГГ ЧЧ:ММ или пусто]
+   
+   Пример:
+   ЗАДАЧА: Пробежать 3 км | Тренировки | 
+   ЗАДАЧА: Сделать лабу по Python | Учёба | 25.06.2026 18:00
+   
+5. Можешь создать несколько задач за раз
+6. Отвечай кратко (2-4 предложения), если не нужно создавать задачи
+7. Если создаёшь задачи - объясни, почему они важны для цели пользователя
+
+ОТВЕТ:"""
+    
+    return prompt
+
+def parse_and_create_tasks(ai_text):
+    """Парсит ответ AI и создаёт задачи"""
+    tasks_created = 0
+    lines = ai_text.split("\n")
+    
+    for line in lines:
+        if line.strip().startswith("ЗАДАЧА:"):
+            try:
+                # Парсим формат: ЗАДАЧА: текст | категория | дедлайн
+                parts = line.replace("ЗАДАЧА:", "").strip().split("|")
+                if len(parts) >= 2:
+                    task_text = parts[0].strip()
+                    category = parts[1].strip() if len(parts) > 1 else "Важное"
+                    deadline = parts[2].strip() if len(parts) > 2 else ""
+                    
+                    # Создаём задачу
+                    add_task_to_db(task_text, "Высокий", category, deadline)
+                    tasks_created += 1
+            except Exception as e:
+                print(f"Ошибка парсинга задачи: {e}")
+    
+    return tasks_created
+
 def update_greeting():
     hour = datetime.datetime.now().hour
     if 6 <= hour < 11:
@@ -1198,10 +1433,21 @@ focus_time_label.pack(pady=5)
 focus_frame = ff
 ctk.CTkButton(ff, text="▶️ Старт", font=("Segoe UI", 12, "bold"), fg_color=ACCENT, hover_color=ACCENT_HOVER, height=36, corner_radius=8, command=lambda: start_focus_mode("Фокус", 25)).pack(pady=(0, 10), padx=15, fill="x")
 
-nav = [("📋 Задачи", "tasks"), ("🔥 Привычки", "habits"), ("📈 История", "history"), ("📅 Календарь", "calendar"), ("🌐 Telegram", "telegram"), ("🤖 AI", "ai")]
+nav = [
+    ("📋 Задачи", "tasks"), 
+    ("💬 Чат с AI", "chat"),  # ← НОВАЯ КНОПКА
+    ("🔥 Привычки", "habits"), 
+    ("📈 История", "history"), 
+    ("📅 Календарь", "calendar"), 
+    ("🌐 Telegram", "telegram"), 
+    ("🤖 AI", "ai")
+]
+
 for txt, view in nav:
     if view == "tasks":
         cmd = show_tasks_view
+    elif view == "chat":
+        cmd = show_chat_view  # ← НОВАЯ КОМАНДА
     elif view == "habits":
         cmd = show_habits_view
     elif view == "history":
@@ -1212,7 +1458,10 @@ for txt, view in nav:
         cmd = show_telegram_view
     else:
         cmd = show_ai_view
-    btn = ctk.CTkButton(sidebar, text=txt, font=("Segoe UI", 13, "bold"), fg_color=BG_TERTIARY, text_color=TEXT_PRIMARY, hover_color=ACCENT, height=42, corner_radius=8, command=cmd)
+    
+    btn = ctk.CTkButton(sidebar, text=txt, font=("Segoe UI", 13, "bold"), 
+                       fg_color=BG_TERTIARY, text_color=TEXT_PRIMARY, 
+                       hover_color=ACCENT, height=42, corner_radius=8, command=cmd)
     btn.pack(pady=3, padx=20, fill="x")
 
 rs = ctk.CTkFrame(app, width=220, fg_color=BG_SECONDARY, corner_radius=0)
@@ -1250,8 +1499,35 @@ motivation_frame.pack(pady=10, padx=30, fill="x")
 motivation_label = ctk.CTkLabel(motivation_frame, text="✨ Загрузка...", font=("Segoe UI", 14), text_color=TEXT_SECONDARY, wraplength=750, justify="center")
 motivation_label.pack(pady=12, padx=20)
 
-content_frame = ctk.CTkFrame(main, fg_color=BG_PRIMARY, corner_radius=10)
-content_frame.pack(pady=10, padx=30, fill="both", expand=True)
+# Контейнер для всего контента
+main_container = ctk.CTkFrame(main, fg_color=BG_PRIMARY, corner_radius=0)
+main_container.pack(pady=10, padx=30, fill="both", expand=True)
+
+# Верхняя часть — задачи (всегда видна)
+tasks_frame = ctk.CTkFrame(main_container, fg_color=BG_SECONDARY, corner_radius=12, border_width=1, border_color=BORDER)
+tasks_frame.pack(pady=(0, 10), padx=0, fill="x")
+
+# Создаём stats_label и progress сразу (не в show_tasks_view)
+tasks_header = ctk.CTkFrame(tasks_frame, fg_color="transparent")
+tasks_header.pack(pady=10, padx=20, fill="x")
+
+stats_label = ctk.CTkLabel(tasks_header, text="✓ 0/0", font=("Segoe UI", 16, "bold"), text_color=TEXT_PRIMARY)
+stats_label.pack(side="left")
+
+progress = ctk.CTkProgressBar(tasks_header, width=500, height=8, fg_color=BG_TERTIARY, progress_color=ACCENT, corner_radius=4)
+progress.pack(side="left", padx=20)
+progress.set(0)
+
+
+
+# Нижняя часть — остальной контент (прокручиваемый)
+content_frame = ctk.CTkScrollableFrame(
+    main_container, 
+    fg_color=BG_PRIMARY,
+    scrollbar_button_color=BG_TERTIARY,
+    scrollbar_button_hover_color=ACCENT
+)
+content_frame.pack(pady=0, padx=0, fill="both", expand=True)
 
 status_bar = ctk.CTkFrame(app, height=38, fg_color=BG_SECONDARY, corner_radius=0)
 status_bar.pack(side="bottom", fill="x")
